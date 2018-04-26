@@ -129,15 +129,12 @@ sub parse {
         $self->{receiver}->initial();
     }
 
-    local *match_next;
-    {
-        no warnings 'redefine';
-        *match_next = (
-            $self->{recursion_warn_limit} or
-            $self->{recursion_limit} or
-            $self->{iteration_limit}
-         ) ? \&match_next_with_limit :
-             \&match_next_normal;
+    if (
+        $self->{recursion_warn_limit} or
+        $self->{recursion_limit} or
+        $self->{iteration_limit}
+    ) {
+        local *match_next = \&match_next_with_limit;
     }
 
     my $match = $self->debug ? do {
@@ -158,10 +155,10 @@ sub parse {
         $match = [ $self->{receiver}->final(@$match) ];
     }
 
-    $match->[0];
+    return $match->[0];
 }
 
-sub match_next_normal {
+sub match_next {
     my ($self, $next) = @_;
 
     my ($rule, $method, $kind, $min, $max, $assertion) =
@@ -194,7 +191,8 @@ sub match_next_normal {
             if ($self->{position} = $position) > $self->{farthest};
     }
 
-    ($result ? $next->{'-skip'} ? [] : $match : 0);
+    return 0 unless $result;
+    return $next->{'-skip'} ? [] : $match;
 }
 
 sub match_next_with_limit {
@@ -220,7 +218,7 @@ sub match_next_with_limit {
         $self->{iteration_count} > $self->{iteration_limit}
     ) { die "Pegex iteration limit of $self->{iteration_limit} reached." }
 
-    my $result = $self->match_next_normal($next);
+    my $result = $self->match_next($next);
 
     $self->{recursion_count}--;
 
@@ -237,7 +235,7 @@ sub match_rule {
     my $rule = $self->{grammar}{tree}{$ref}
         or die "No rule defined for '$ref'";
 
-    [ $rule->{action}->($self->{receiver}, @$match) ];
+    return [ $rule->{action}->($self->{receiver}, @$match) ];
 }
 
 sub match_ref {
@@ -245,12 +243,10 @@ sub match_ref {
     my $rule = $self->{grammar}{tree}{$ref}
         or die "No rule defined for '$ref'";
     my $match = $self->match_next($rule) or return;
-    return $Pegex::Constant::Dummy unless $rule->{action};
+    return [] unless $rule->{action};
     @{$self}{'rule', 'parent'} = ($ref, $parent);
 
-    # XXX Possible API mismatch.
-    # Not sure if we should "splat" the $match.
-    [ $rule->{action}->($self->{receiver}, @$match) ];
+    return [ $rule->{action}->($self->{receiver}, @$match) ];
 }
 
 sub match_rgx {
@@ -405,7 +401,6 @@ sub line {
 {
     package Pegex::Constant;
     our $Null = [];
-    our $Dummy = [];
 }
 
 1;
